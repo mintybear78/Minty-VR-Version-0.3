@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MINTY VR (Version 0.3)</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
+        #ui { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0, 0, 0, 0.9); display: flex; flex-direction: column;
+            justify-content: center; align-items: center; color: white; z-index: 100;
+        }
+        .box { padding: 30px; background: #1a1a1a; border: 2px solid #00ffcc; border-radius: 20px; text-align: center; box-shadow: 0 0 20px rgba(0, 255, 204, 0.2); }
+        h1 { color: #00ffcc; margin: 0 0 10px 0; }
+        select { background: #333; color: #00ffcc; border: 1px solid #00ffcc; padding: 8px; margin: 15px; cursor: pointer; border-radius: 5px; }
+        kbd { background: #333; color: #00ffcc; padding: 2px 6px; border-radius: 4px; border: 1px solid #00ffcc; }
+        
+        #hotbar {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 8px; pointer-events: none;
+        }
+        .slot {
+            width: 45px; height: 45px; border: 2px solid rgba(0, 255, 204, 0.3);
+            background: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center;
+            color: #00ffcc; font-size: 12px; border-radius: 8px; font-weight: bold;
+        }
+        .slot.active { border-color: #00ffcc; background: rgba(0, 255, 204, 0.2); transform: scale(1.1); }
+        
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; background: #00ffcc; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div class="box">
+            <h1>MINTY VR <span style="font-size: 0.5em;">V0.3</span></h1>
+            <label>Graphics:</label>
+            <select id="graphics">
+                <option value="high">HIGH (Lighting + Fog)</option>
+                <option value="low">LOW (Performant)</option>
+            </select>
+            <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Walk | <kbd>Space</kbd> Jump</p>
+            <p><kbd>L/R</kbd> + <kbd>Click</kbd> Pick Up | <kbd>L/R</kbd> + <kbd>F</kbd> Drop/Delete</p>
+            <p>Inventory: <kbd>1</kbd> - <kbd>7</kbd></p>
+            <button id="startBtn" style="margin-top:15px; padding: 12px 25px; cursor: pointer; background: #00ffcc; border: none; font-weight: bold; border-radius: 5px;">START GAME</button>
+        </div>
+    </div>
+
+    <div id="hotbar">
+        <div class="slot active" id="s0">1</div>
+        <div class="slot" id="s1">2</div>
+        <div class="slot" id="s2">3</div>
+        <div class="slot" id="s3">4</div>
+        <div class="slot" id="s4">5</div>
+        <div class="slot" id="s5">6</div>
+        <div class="slot" id="s6">7</div>
+    </div>
+    <div id="crosshair"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script>
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.rotation.order = 'YXZ';
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+        const sun = new THREE.DirectionalLight(0x00ffcc, 1);
+        sun.position.set(5, 10, 5);
+        scene.add(ambient, sun);
+
+        document.getElementById('startBtn').onclick = () => {
+            const mode = document.getElementById('graphics').value;
+            if(mode === 'low') { sun.visible = false; scene.fog = null; }
+            else { scene.fog = new THREE.Fog(0x000000, 2, 40); }
+            document.body.requestPointerLock();
+        };
+
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x151515 }));
+        floor.rotation.x = -Math.PI / 2;
+        scene.add(floor);
+
+        const interactables = [];
+        const colors = [0x00ffcc, 0xff0055, 0x55ff00, 0x0055ff, 0xffff00];
+        for(let i=0; i<30; i++) {
+            const cube = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshStandardMaterial({ color: colors[i % 5] }));
+            cube.position.set(Math.random()*40-20, 0.25, Math.random()*40-20);
+            scene.add(cube);
+            interactables.push(cube);
+        }
+
+        const handRoot = new THREE.Group();
+        camera.add(handRoot);
+        scene.add(camera);
+
+        const L_REST = new THREE.Vector3(-0.5, -0.4, -0.7);
+        const R_REST = new THREE.Vector3(0.5, -0.4, -0.7);
+        const leftHand = new THREE.Mesh(new THREE.SphereGeometry(0.12), new THREE.MeshStandardMaterial({color: 0xff4444}));
+        const rightHand = new THREE.Mesh(new THREE.SphereGeometry(0.12), new THREE.MeshStandardMaterial({color: 0x4444ff}));
+        
+        const itemL = new THREE.Mesh(new THREE.BoxGeometry(0.2,0.2,0.2), new THREE.MeshStandardMaterial());
+        const itemR = new THREE.Mesh(new THREE.BoxGeometry(0.2,0.2,0.2), new THREE.MeshStandardMaterial());
+        itemL.visible = itemR.visible = false;
+        
+        leftHand.add(itemL); rightHand.add(itemR);
+        handRoot.add(leftHand, rightHand);
+
+        let inventory = [null, null, null, null, null, null, null];
+        let activeSlot = 0;
+        let move = { fwd: false, bck: false, lft: false, rgt: false };
+        let inputs = { lKey: false, rKey: false, lClick: false, rClick: false, fKey: false };
+        let yVel = 0, canJump = true;
+        const raycaster = new THREE.Raycaster();
+
+        document.addEventListener('keydown', (e) => {
+            const k = e.key.toLowerCase();
+            if(k === 'w') move.fwd = true; if(k === 's') move.bck = true;
+            if(k === 'a') move.lft = true; if(k === 'd') move.rgt = true;
+            if(k === 'l') inputs.lKey = true; if(k === 'r') inputs.rKey = true;
+            if(k === 'f') {
+                inputs.fKey = true;
+                if(inputs.lKey || inputs.rKey) tryDrop();
+            }
+            if(e.code === 'Space' && canJump) { yVel = 0.22; canJump = false; }
+            if(e.key >= 1 && e.key <= 7) setSlot(parseInt(e.key)-1);
+        });
+
+        document.addEventListener('keyup', (e) => {
+            const k = e.key.toLowerCase();
+            if(k === 'w') move.fwd = false; if(k === 's') move.bck = false;
+            if(k === 'a') move.lft = false; if(k === 'd') move.rgt = false;
+            if(k === 'l') inputs.lKey = false; if(k === 'r') inputs.rKey = false;
+            if(k === 'f') inputs.fKey = false;
+        });
+
+        document.addEventListener('mousedown', (e) => {
+            if(e.button === 0) { inputs.lClick = true; if(inputs.lKey) tryPick(); }
+            if(e.button === 2) { inputs.rClick = true; if(inputs.rKey) tryPick(); }
+        });
+
+        document.addEventListener('mouseup', (e) => {
+            if(e.button === 0) inputs.lClick = false;
+            if(e.button === 2) inputs.rClick = false;
+        });
+
+        window.oncontextmenu = (e) => e.preventDefault();
+
+        function setSlot(i) {
+            activeSlot = i;
+            document.querySelectorAll('.slot').forEach((s, idx) => s.className = idx === i ? 'slot active' : 'slot');
+            refreshHandItems();
+        }
+
+        function tryPick() {
+            raycaster.setFromCamera({x:0, y:0}, camera);
+            const hits = raycaster.intersectObjects(interactables);
+            if(hits.length > 0) {
+                const obj = hits[0].object;
+                inventory[activeSlot] = { color: obj.material.color.getHex() };
+                scene.remove(obj);
+                interactables.splice(interactables.indexOf(obj), 1);
+                document.getElementById('s'+activeSlot).innerText = "📦";
+                refreshHandItems();
+            }
+        }
+
+        function tryDrop() {
+            if(inventory[activeSlot]) {
+                inventory[activeSlot] = null;
+                document.getElementById('s'+activeSlot).innerText = (activeSlot + 1).toString();
+                refreshHandItems();
+            }
+        }
+
+        function refreshHandItems() {
+            const item = inventory[activeSlot];
+            if(item) {
+                itemL.visible = itemR.visible = true;
+                itemL.material.color.setHex(item.color);
+                itemR.material.color.setHex(item.color);
+            } else {
+                itemL.visible = itemR.visible = false;
+            }
+        }
+
+        document.addEventListener('pointerlockchange', () => {
+            document.getElementById('ui').style.display = document.pointerLockElement ? 'none' : 'flex';
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!document.pointerLockElement) return;
+            if (inputs.lClick && inputs.lKey) {
+                leftHand.position.x += e.movementX * 0.005;
+                leftHand.position.y -= e.movementY * 0.005;
+            } else if (inputs.rClick && inputs.rKey) {
+                rightHand.position.x += e.movementX * 0.005;
+                rightHand.position.y -= e.movementY * 0.005;
+            } else {
+                camera.rotation.y -= e.movementX * 0.002;
+                camera.rotation.x = Math.max(-1.5, Math.min(1.5, camera.rotation.x - e.movementY * 0.002));
+            }
+        });
+
+        function animate(t) {
+            requestAnimationFrame(animate);
+            yVel -= 0.01; camera.position.y += yVel;
+            if(camera.position.y <= 1.6) { camera.position.y = 1.6; yVel = 0; canJump = true; }
+
+            const speed = 0.12, dir = new THREE.Vector3();
+            camera.getWorldDirection(dir); dir.y = 0; dir.normalize();
+            const side = new THREE.Vector3().crossVectors(camera.up, dir).normalize();
+            if(move.fwd) camera.position.addScaledVector(dir, speed);
+            if(move.bck) camera.position.addScaledVector(dir, -speed);
+            if(move.lft) camera.position.addScaledVector(side, speed);
+            if(move.rgt) camera.position.addScaledVector(side, -speed);
+
+            if(!(inputs.lClick && inputs.lKey)) leftHand.position.lerp(L_REST, 0.15);
+            if(!(inputs.rClick && inputs.rKey)) rightHand.position.lerp(R_REST, 0.15);
+            handRoot.position.y = Math.sin(t*0.002)*0.01;
+
+            renderer.render(scene, camera);
+        }
+        animate();
+        window.onresize = () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); };
+    </script>
+</body>
+</html>
